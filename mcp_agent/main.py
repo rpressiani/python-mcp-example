@@ -47,7 +47,7 @@ async def execute_agent(prompt: str, model_name: str) -> AgentResponse:
 
     tools_used: list[str] = []
 
-    async with sse_client(MCP_SERVER_SSE_URL) as (read_stream, write_stream):
+    async with sse_client(MCP_SERVER_SSE_URL, timeout=30.0) as (read_stream, write_stream):
         async with ClientSession(read_stream, write_stream) as session:
             await session.initialize()
             logger.info("Connected to MCP Server session.")

@@ -48,7 +48,7 @@ async def handle_call_tool(name: str, arguments: dict | None) -> list[types.Text
 
     return [types.TextContent(type="text", text=result_text)]
 
-sse = SseServerTransport("/messages")
+sse = SseServerTransport("/messages/")
 
 async def handle_sse(request):
     async with sse.connect_sse(request.scope, request.receive, request._send) as streams:
@@ -61,7 +61,7 @@ app = Starlette(
     debug=True,
     routes=[
         Route("/sse", endpoint=handle_sse),
-        Mount("/messages", app=sse.handle_post_message),
+        Mount("/messages/", app=sse.handle_post_message),
         Route("/health", endpoint=handle_health, methods=["GET"]),
     ],
 )
