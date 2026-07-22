@@ -65,7 +65,10 @@ async def execute_agent(prompt: str, model_name: str) -> AgentResponse:
                     }
                 })
 
-            messages: list[ChatCompletionMessageParam] = [{"role": "user", "content": prompt}]
+            messages: list[ChatCompletionMessageParam] = [
+                {"role": "system", "content": "You are an AI agent. When asked to call a tool or API, you MUST invoke the function using tool_calls."},
+                {"role": "user", "content": prompt}
+            ]
             logger.info(f"Sending prompt to LLM '{model_name}': '{prompt}'")
 
             response = await openai_client.chat.completions.create(
@@ -85,11 +88,7 @@ async def execute_agent(prompt: str, model_name: str) -> AgentResponse:
                         continue
                     fn_name = tool_call.function.name
                     fn_args_str = tool_call.function.arguments or "{}"
-                    try:
-                        fn_args = json.loads(fn_args_str) if fn_args_str else {}
-                    except Exception as parse_err:
-                        logger.warning(f"Failed to parse tool call arguments '{fn_args_str}': {parse_err}. Falling back to empty dict.")
-                        fn_args = {}
+                    fn_args = json.loads(fn_args_str) if fn_args_str else {}
                     tools_used.append(fn_name)
 
                     logger.info(f"Executing tool '{fn_name}' with args: {fn_args}")
@@ -110,6 +109,7 @@ async def execute_agent(prompt: str, model_name: str) -> AgentResponse:
                 )
                 final_text = final_response.choices[0].message.content or ""
             else:
+                logger.warning(f"No tool calls returned by LLM '{model_name}'. Assistant output: {assistant_msg.content}")
                 final_text = assistant_msg.content or ""
 
             return AgentResponse(
