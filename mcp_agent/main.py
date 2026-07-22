@@ -47,7 +47,7 @@ async def execute_agent(prompt: str, model_name: str) -> AgentResponse:
 
     tools_used: list[str] = []
 
-    async with sse_client(MCP_SERVER_SSE_URL, timeout=30.0) as (read_stream, write_stream):
+    async with sse_client(MCP_SERVER_SSE_URL, timeout=60.0, sse_read_timeout=300.0) as (read_stream, write_stream):
         async with ClientSession(read_stream, write_stream) as session:
             await session.initialize()
             logger.info("Connected to MCP Server session.")
@@ -85,7 +85,11 @@ async def execute_agent(prompt: str, model_name: str) -> AgentResponse:
                         continue
                     fn_name = tool_call.function.name
                     fn_args_str = tool_call.function.arguments or "{}"
-                    fn_args = json.loads(fn_args_str) if fn_args_str else {}
+                    try:
+                        fn_args = json.loads(fn_args_str) if fn_args_str else {}
+                    except Exception as parse_err:
+                        logger.warning(f"Failed to parse tool call arguments '{fn_args_str}': {parse_err}. Falling back to empty dict.")
+                        fn_args = {}
                     tools_used.append(fn_name)
 
                     logger.info(f"Executing tool '{fn_name}' with args: {fn_args}")
@@ -114,6 +118,12 @@ async def execute_agent(prompt: str, model_name: str) -> AgentResponse:
                 model=model_name
             )
 
+def unwrap_exception(e: BaseException) -> str:
+    if isinstance(e, BaseExceptionGroup):
+        sub_msgs = [unwrap_exception(sub) for sub in e.exceptions]
+        return "; ".join(sub_msgs)
+    return str(e)
+
 @app.get("/health")
 async def health():
     return {"status": "ok"}
@@ -125,8 +135,9 @@ async def run_prompt(req: PromptRequest):
         res = await execute_agent(req.prompt, model_to_use)
         return res
     except Exception as e:
-        logger.error(f"Error executing agent prompt: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        detailed_err = unwrap_exception(e)
+        logger.error(f"Error executing agent prompt: {detailed_err}", exc_info=True)
+        raise HTTPException(status_code=500, detail=detailed_err)
 
 @app.get("/run")
 async def run_default():
