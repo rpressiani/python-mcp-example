@@ -12,6 +12,12 @@ on:
     paths:
       - 'api_backend/**'
   workflow_dispatch:
+    inputs:
+      image_tag:
+        description: 'Docker image tag'
+        required: false
+        default: 'latest'
+        type: string
 
 jobs:
   build:
@@ -45,4 +51,4 @@ jobs:
           file: ./api_backend/Dockerfile
           platforms: linux/amd64,linux/arm64
           push: ${{ github.event_name != 'pull_request' }}
-          tags: ghcr.io/rpressiani/mcp-api-backend:latest
+          tags: ghcr.io/rpressiani/mcp-api-backend:${{ inputs.image_tag || 'latest' }}
