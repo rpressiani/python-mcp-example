@@ -8,7 +8,7 @@ from mcp.server.sse import SseServerTransport
 import mcp.types as types
 from starlette.applications import Starlette
 from starlette.responses import JSONResponse
-from starlette.routing import Route
+from starlette.routing import Mount, Route
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger("mcp_server")
@@ -54,9 +54,6 @@ async def handle_sse(request):
     async with sse.connect_sse(request.scope, request.receive, request._send) as streams:
         await server.run(streams[0], streams[1], server.create_initialization_options())
 
-async def handle_messages(request):
-    await sse.handle_post_message(request.scope, request.receive, request._send)
-
 async def handle_health(request):
     return JSONResponse({"status": "ok"})
 
@@ -64,7 +61,7 @@ app = Starlette(
     debug=True,
     routes=[
         Route("/sse", endpoint=handle_sse),
-        Route("/messages", endpoint=handle_messages, methods=["POST"]),
+        Mount("/messages", app=sse.handle_post_message),
         Route("/health", endpoint=handle_health, methods=["GET"]),
     ],
 )
