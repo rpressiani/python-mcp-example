@@ -2,7 +2,9 @@ import asyncio
 import json
 import logging
 import os
-import httpx
+from pydantic import BaseModel
+from fastapi import FastAPI, HTTPException
+import uvicorn
 from openai import AsyncOpenAI
 from openai.types.chat import (
     ChatCompletionMessageParam,
@@ -18,33 +20,40 @@ logger = logging.getLogger("mcp_agent")
 MCP_SERVER_SSE_URL = os.getenv("MCP_SERVER_SSE_URL", "http://mcp-server.mcp-test.svc.cluster.local:8001/sse")
 KUBEAI_URL = os.getenv("KUBEAI_URL", "http://kubeai.kubeai.svc.cluster.local/openai/v1")
 MODEL_NAME = os.getenv("MODEL_NAME", "qwen-tiny")
-PROMPT = os.getenv("PROMPT", "Please call the hello world API tool and let me know the response.")
+PORT = int(os.getenv("PORT", "8002"))
 
-async def run_agent():
-    logger.info("==================================================")
-    logger.info(f"Starting MCP Agent runner...")
+app = FastAPI(
+    title="MCP Agent API",
+    description="Exposes HTTP API endpoints to trigger LLM Agent execution with MCP tool integration."
+)
+
+class PromptRequest(BaseModel):
+    prompt: str = "Please call the hello world API tool and let me know the response."
+    model: str | None = None
+
+class AgentResponse(BaseModel):
+    response: str
+    tools_used: list[str]
+    model: str
+
+async def execute_agent(prompt: str, model_name: str) -> AgentResponse:
     logger.info(f"Connecting to MCP SSE Server at: {MCP_SERVER_SSE_URL}")
-    logger.info(f"KubeAI OpenAI Endpoint: {KUBEAI_URL} (Model: {MODEL_NAME})")
-    logger.info("==================================================")
+    logger.info(f"KubeAI OpenAI Endpoint: {KUBEAI_URL} (Model: {model_name})")
 
-    # Initialize OpenAI client pointing to KubeAI endpoint
     openai_client = AsyncOpenAI(
         base_url=KUBEAI_URL,
-        api_key="not-needed"  # KubeAI local cluster endpoint does not require an API key
+        api_key="not-needed"
     )
+
+    tools_used: list[str] = []
 
     async with sse_client(MCP_SERVER_SSE_URL) as (read_stream, write_stream):
         async with ClientSession(read_stream, write_stream) as session:
             await session.initialize()
-            logger.info("Successfully connected to MCP Server!")
+            logger.info("Connected to MCP Server session.")
 
-            # 1. Discover tools from MCP server
+            # Discover tools
             mcp_tools = await session.list_tools()
-            logger.info(f"Discovered {len(mcp_tools.tools)} tool(s) from MCP server:")
-            for tool in mcp_tools.tools:
-                logger.info(f" - {tool.name}: {tool.description}")
-
-            # Format tools for OpenAI client compatibility
             openai_tools: list[ChatCompletionToolParam] = []
             for tool in mcp_tools.tools:
                 openai_tools.append({
@@ -56,21 +65,19 @@ async def run_agent():
                     }
                 })
 
-            # 2. Query LLM via KubeAI with tool definition attached
-            messages: list[ChatCompletionMessageParam] = [{"role": "user", "content": PROMPT}]
-            logger.info(f"Sending user prompt to LLM '{MODEL_NAME}': '{PROMPT}'")
+            messages: list[ChatCompletionMessageParam] = [{"role": "user", "content": prompt}]
+            logger.info(f"Sending prompt to LLM '{model_name}': '{prompt}'")
 
             response = await openai_client.chat.completions.create(
-                model=MODEL_NAME,
+                model=model_name,
                 messages=messages,
                 tools=openai_tools,
                 tool_choice="auto"
             )
 
             assistant_msg = response.choices[0].message
-            logger.info(f"LLM Response message: {assistant_msg}")
+            logger.info(f"LLM initial response: {assistant_msg}")
 
-            # 3. Check for tool call requests from LLM
             if assistant_msg.tool_calls:
                 messages.append(assistant_msg.model_dump(exclude_none=True))  # type: ignore[arg-type]
                 for tool_call in assistant_msg.tool_calls:
@@ -79,15 +86,12 @@ async def run_agent():
                     fn_name = tool_call.function.name
                     fn_args_str = tool_call.function.arguments or "{}"
                     fn_args = json.loads(fn_args_str) if fn_args_str else {}
+                    tools_used.append(fn_name)
 
-                    logger.info(f"LLM requested tool execution: '{fn_name}' with args: {fn_args}")
-
-                    # Invoke MCP tool via MCP session
+                    logger.info(f"Executing tool '{fn_name}' with args: {fn_args}")
                     mcp_result = await session.call_tool(fn_name, fn_args)
                     result_text = "\n".join([c.text for c in mcp_result.content if c.type == "text"])
-                    logger.info(f"MCP tool '{fn_name}' execution result: {result_text}")
 
-                    # Append tool result back to message history
                     messages.append(
                         ChatCompletionToolMessageParam(
                             role="tool",
@@ -96,16 +100,40 @@ async def run_agent():
                         )
                     )
 
-                # 4. Get final synthesis from LLM
                 final_response = await openai_client.chat.completions.create(
-                    model=MODEL_NAME,
+                    model=model_name,
                     messages=messages,
                 )
-                logger.info("==================================================")
-                logger.info(f"Final LLM Response:\n{final_response.choices[0].message.content}")
-                logger.info("==================================================")
+                final_text = final_response.choices[0].message.content or ""
             else:
-                logger.info(f"Direct LLM Response (no tool call triggered):\n{assistant_msg.content}")
+                final_text = assistant_msg.content or ""
+
+            return AgentResponse(
+                response=final_text,
+                tools_used=tools_used,
+                model=model_name
+            )
+
+@app.get("/health")
+async def health():
+    return {"status": "ok"}
+
+@app.post("/prompt", response_model=AgentResponse)
+async def run_prompt(req: PromptRequest):
+    model_to_use = req.model or MODEL_NAME
+    try:
+        res = await execute_agent(req.prompt, model_to_use)
+        return res
+    except Exception as e:
+        logger.error(f"Error executing agent prompt: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/run")
+async def run_default():
+    """Helper GET endpoint to trigger default prompt easily via curl or browser."""
+    default_prompt = os.getenv("PROMPT", "Please call the hello world API tool and let me know the response.")
+    return await run_prompt(PromptRequest(prompt=default_prompt))
 
 if __name__ == "__main__":
-    asyncio.run(run_agent())
+    logger.info(f"Starting MCP Agent API server on port {PORT}...")
+    uvicorn.run("main:app", host="0.0.0.0", port=PORT, reload=False)

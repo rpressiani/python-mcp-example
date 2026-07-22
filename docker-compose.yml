@@ -28,6 +28,8 @@ services:
       context: ./mcp_agent
       dockerfile: Dockerfile
     container_name: mcp-agent
+    ports:
+      - "8002:8002"
     env_file:
       - ./mcp_agent/.env
     depends_on:
