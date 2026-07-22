@@ -7,7 +7,7 @@ from mcp.server import Server
 from mcp.server.sse import SseServerTransport
 import mcp.types as types
 from starlette.applications import Starlette
-from starlette.responses import JSONResponse
+from starlette.responses import JSONResponse, Response
 from starlette.routing import Mount, Route
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
