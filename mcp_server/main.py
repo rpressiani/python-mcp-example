@@ -50,9 +50,10 @@ async def handle_call_tool(name: str, arguments: dict | None) -> list[types.Text
 
 sse = SseServerTransport("/messages/")
 
-async def handle_sse(scope, receive, send):
-    async with sse.connect_sse(scope, receive, send) as streams:
+async def handle_sse(request):
+    async with sse.connect_sse(request.scope, request.receive, request._send) as streams:
         await server.run(streams[0], streams[1], server.create_initialization_options())
+    return Response()
 
 async def handle_health(request):
     return JSONResponse({"status": "ok"})
@@ -60,8 +61,9 @@ async def handle_health(request):
 app = Starlette(
     debug=True,
     routes=[
-        Mount("/sse", app=handle_sse),
+        Route("/sse", endpoint=handle_sse),
         Mount("/messages/", app=sse.handle_post_message),
+        Mount("/messages", app=sse.handle_post_message),
         Route("/health", endpoint=handle_health, methods=["GET"]),
     ],
 )
