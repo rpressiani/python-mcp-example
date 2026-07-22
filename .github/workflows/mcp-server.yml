@@ -1,0 +1,38 @@
+name: Build MCP Server Image
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'mcp_server/**'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'mcp_server/**'
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build Docker Image
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker Image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./mcp_server
+          file: ./mcp_server/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: false
+          tags: mcp-server:latest

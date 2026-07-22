@@ -1,0 +1,14 @@
+[project]
+name = "api-backend"
+version = "0.1.0"
+description = "MCP Test API Backend"
+dependencies = [
+    "fastapi>=0.100.0",
+    "uvicorn>=0.22.0",
+]
+requires-python = ">=3.11"
+
+[tool.pyright]
+venvPath = "."
+venv = ".venv"
+
