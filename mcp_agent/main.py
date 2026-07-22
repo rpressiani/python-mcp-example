@@ -75,7 +75,8 @@ async def execute_agent(prompt: str, model_name: str) -> AgentResponse:
                 model=model_name,
                 messages=messages,
                 tools=openai_tools,
-                tool_choice="auto"
+                tool_choice="auto",
+                extra_body={"think": False}
             )
 
             assistant_msg = response.choices[0].message
