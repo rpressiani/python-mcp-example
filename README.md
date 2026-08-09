@@ -57,7 +57,7 @@ Each service reads its configuration from its local `.env` file (copied from `.e
      kubectl logs -n mcp-test -l app=mcp-api-backend -f
      ```
      You will see `"Hello World! API called at <timestamp>"` when the LLM decides to call the tool.
-   - Check `mcp-agent` logs:
+…   - Check `mcp-agent` logs:
      ```bash
      kubectl logs -n mcp-test -l app=mcp-agent -f
      ```
